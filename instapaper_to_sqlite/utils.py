@@ -1,15 +1,12 @@
+import json
+import pathlib
 import sys
 
 import click
+from pyinstapaper.instapaper import Bookmark, Folder, Instapaper
 
-FOREIGN_KEYS = [
-    ("items", "parent_id", "items", "id"),
-    ("items", "project_id", "projects", "id"),
-    ("notes", "item_id", "items", "id"),
-    ("notes", "project_id", "projects", "id"),
-    ("projects", "parent_id", "projects", "id"),
-    ("users", "inbox_project", "projects", "id"),
-]
+BOOKMARK_ATTRIBUTES = set(Bookmark.ATTRIBUTES)
+FOLDER_ATTRIBUTES = set(Folder.ATTRIBUTES)
 
 
 def error(message):
@@ -17,7 +14,19 @@ def error(message):
     sys.exit(-1)
 
 
-def foreign_keys_for(table):
-    for (t, *fk) in FOREIGN_KEYS:
-        if t == table:
-            yield fk
+def login(auth: pathlib.Path):
+    try:
+        data = json.loads(pathlib.Path(auth).read_text())
+        consumer_id = data["instapaper_consumer_id"]
+        consumer_secret = data["instapaper_consumer_secret"]
+        login = data["instapaper_email"]
+        password = data["instapaper_password"]
+    except (KeyError, FileNotFoundError):
+        error(
+            "Cannot find authentication data, please run `instapaper-to-sqlite auth`!"
+        )
+
+    instapaper = Instapaper(consumer_id, consumer_secret)
+    instapaper.login(login, password)
+
+    return instapaper

@@ -1,9 +1,9 @@
-import click
-import pathlib
 import json
+import pathlib
+
+import click
 import sqlite_utils
 from instapaper_to_sqlite import utils
-from pyinstapaper.instapaper import Instapaper
 
 
 @click.group()
@@ -24,7 +24,7 @@ def auth(auth):
     "Save authentication credentials to a JSON file"
     auth_data = {}
     if pathlib.Path(auth).exists():
-        auth_data = json.load(open(auth))
+        auth_data = json.loads(pathlib.Path(auth).read_text())
     click.echo(
         "In Instapaper, get a Full API key following the process at https://www.instapaper.com/api."
     )
@@ -41,7 +41,7 @@ def auth(auth):
         }
     )
 
-    open(auth, "w").write(json.dumps(auth_data, indent=4) + "\n")
+    pathlib.Path(auth).write_text(json.dumps(auth_data, indent=4) + "\n")
     click.echo()
     click.echo(
         "Your authentication credentials have been saved to {}. You can now import articles by running:".format(
@@ -50,21 +50,6 @@ def auth(auth):
     )
     click.echo()
     click.echo("    $ instapaper-to-sqlite bookmarks instapaper.db")
-
-
-BOOKMARK_KEYS = [
-    "bookmark_id",
-    "title",
-    "description",
-    "hash",
-    "url",
-    "progress_timestamp",
-    "time",
-    "progress",
-    "starred",
-    "type",
-    "private_source",
-]
 
 
 @cli.command()
@@ -80,37 +65,66 @@ BOOKMARK_KEYS = [
     default="auth.json",
     help="Path to save tokens to, defaults to auth.json",
 )
-@click.option(
-    "-f",
-    "--folder",
-    default="archive",
-    help="The folder of bookmarks to save",
-)
-def bookmarks(db_path, auth, folder):
+def folders(db_path, auth):
     """Save a folder of bookmarks"""
     db = sqlite_utils.Database(db_path)
-    try:
-        data = json.load(open(auth))
-        consumer_id = data["instapaper_consumer_id"]
-        consumer_secret = data["instapaper_consumer_secret"]
-        login = data["instapaper_email"]
-        password = data["instapaper_password"]
-    except (KeyError, FileNotFoundError):
-        utils.error(
-            "Cannot find authentication data, please run `instapaper-to-sqlite auth`!"
-        )
-    print("Fetching bookmarks...")
-    instapaper = Instapaper(consumer_id, consumer_secret)
-    instapaper.login(login, password)
 
-    bookmarks = [
-        {key: getattr(entry, key) for key in BOOKMARK_KEYS}
-        for entry in instapaper.get_bookmarks(folder, limit=500)
+    instapaper = utils.login(auth)
+
+    print("Fetching folders...")
+
+    folders = [
+        {key: getattr(entry, key) for key in utils.FOLDER_ATTRIBUTES}
+        for entry in instapaper.get_folders()
     ]
-    print("Downloaded {} bookmarks from folder '{}'.".format(len(bookmarks), folder))
-    for b in bookmarks:
-        b.update({"folder": folder})
-    db["bookmarks"].upsert_all(bookmarks, pk="bookmark_id", alter=True)
+
+    folders.append({"folder_id": "archive", "title": "archive"})
+    folders.append({"folder_id": "unread", "title": "unread"})
+    folders.append({"folder_id": "starred", "title": "starred"})
+
+    print(f"Downloaded {len(folders)} folders")
+
+    db["folders"].upsert_all(folders, pk="folder_id", alter=True)
+
+
+@cli.command()
+@click.argument(
+    "db_path",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+    required=True,
+)
+@click.option(
+    "-a",
+    "--auth",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+    default="auth.json",
+    help="Path to save tokens to, defaults to auth.json",
+)
+def bookmarks(db_path, auth):
+    """Save a folder of bookmarks"""
+    db = sqlite_utils.Database(db_path)
+    instapaper = utils.login(auth)
+
+    for folder in db["folders"].rows:
+        print(f"Fetching bookmarks of folder {folder['title']}...")
+        bookmarks = [
+            {key: getattr(entry, key) for key in utils.BOOKMARK_ATTRIBUTES}
+            for entry in instapaper.get_bookmarks(folder["folder_id"], limit=500)
+        ]
+        print(
+            "Downloaded {} bookmarks from folder '{}'.".format(
+                len(bookmarks), folder["title"]
+            )
+        )
+
+        for bookmark in bookmarks:
+            bookmark["folder_id"] = folder["folder_id"]
+
+        db["bookmarks"].upsert_all(bookmarks, pk="bookmark_id", alter=True)
+
+    db["bookmarks"].create_index(columns=["time"], if_not_exists=True)
+    db["bookmarks"].add_foreign_key("folder_id", ignore=True)
+    db.index_foreign_keys()
 
 
 if __name__ == "__main__":

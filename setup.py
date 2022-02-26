@@ -32,6 +32,8 @@ setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Topic :: Database",
     ],
     keywords="instapaper sqlite export dogsheep",
@@ -44,7 +46,7 @@ setup(
     install_requires=[
         "click",
         "requests",
-        "sqlite-utils~=3.17",
+        "sqlite-utils",
         "pyinstapaper @ git+https://github.com/bcongdon/pyinstapaper#egg=pyinstapaper",
     ],
     extras_require={"test": ["pytest"]},
